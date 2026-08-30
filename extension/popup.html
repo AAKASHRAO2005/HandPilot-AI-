@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hand Gesture Controller</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="header">
+    <span class="icon">✋</span>
+    <div>
+      <div class="title">Hand Gesture Controller</div>
+      <div class="subtitle">AI Desktop Control</div>
+    </div>
+  </div>
+
+  <!-- Connection status -->
+  <div class="card">
+    <div class="card-title">CONNECTION</div>
+    <div class="status-row">
+      <span class="dot" id="ws-dot"></span>
+      <span class="status-text" id="ws-status">Checking…</span>
+      <button class="btn-small" id="reconnect-btn">Reconnect</button>
+    </div>
+    <div class="ws-url">ws://127.0.0.1:8765</div>
+  </div>
+
+  <!-- Current gesture -->
+  <div class="card">
+    <div class="card-title">LAST GESTURE</div>
+    <div class="gesture-display" id="gesture-display">—</div>
+    <div class="action-display" id="action-display">No gesture detected</div>
+  </div>
+
+  <!-- Stats -->
+  <div class="card">
+    <div class="card-title">PERFORMANCE</div>
+    <div class="stats-grid">
+      <div class="stat">
+        <div class="stat-value" id="fps-val">—</div>
+        <div class="stat-label">FPS</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="lat-val">—</div>
+        <div class="stat-label">Latency (ms)</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="fingers-val">—</div>
+        <div class="stat-label">Fingers</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="conf-val">—</div>
+        <div class="stat-label">Confidence</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Info -->
+  <div class="footer">
+    <div>Toggle: <kbd>Ctrl+Alt+G</kbd></div>
+    <div>Emergency Stop: <kbd>Ctrl+Alt+X</kbd></div>
+    <div class="note">Desktop control works independently of this extension</div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

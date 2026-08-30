@@ -1,0 +1,28 @@
+# ============================================================
+#  Hand Gesture Desktop Controller — Python Dependencies
+# ============================================================
+
+# AI / Computer Vision
+ultralytics>=8.3.0          # YOLO11
+opencv-python>=4.9.0        # Webcam capture + drawing
+mediapipe>=0.10.14          # Hand landmark detection (21 points)
+numpy>=1.26.0               # Array math
+
+# Deep learning backend
+# torch and torchvision are installed separately depending on CUDA availability.
+# See README.md "Installation" section for GPU vs CPU install commands.
+# torch>=2.2.0
+# torchvision>=0.17.0
+
+# Configuration
+PyYAML>=6.0
+
+# Windows input control
+pywin32>=306                # win32api, win32con for additional Windows features
+pynput>=1.7.6               # Global hotkey listener
+
+# WebSocket server (browser extension communication)
+websockets>=12.0
+
+# Image handling for tkinter dashboard
+Pillow>=10.3.0

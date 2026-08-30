@@ -1,0 +1,177 @@
+/* popup.css — Extension popup styles */
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  width: 300px;
+  background: #0d0d0d;
+  color: #e2e8f0;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-size: 12px;
+}
+
+/* Header */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 14px 10px;
+  background: linear-gradient(135deg, #7c3aed, #4f46e5);
+}
+
+.icon {
+  font-size: 24px;
+}
+
+.title {
+  font-size: 13px;
+  font-weight: 700;
+  color: white;
+  letter-spacing: 0.5px;
+}
+
+.subtitle {
+  font-size: 10px;
+  color: rgba(255,255,255,0.65);
+}
+
+/* Cards */
+.card {
+  margin: 8px 10px;
+  background: #1a1a2e;
+  border-radius: 10px;
+  padding: 10px 12px;
+  border: 1px solid #2d2d4e;
+}
+
+.card-title {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  color: #64748b;
+  margin-bottom: 7px;
+}
+
+/* Connection */
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #ef4444;
+  flex-shrink: 0;
+  transition: background 0.3s;
+}
+
+.dot.connected {
+  background: #22c55e;
+  box-shadow: 0 0 6px #22c55e80;
+}
+
+.status-text {
+  flex: 1;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.btn-small {
+  background: #7c3aed;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-size: 10px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-small:hover {
+  background: #6d28d9;
+}
+
+.ws-url {
+  font-size: 9px;
+  color: #475569;
+  margin-top: 5px;
+  font-family: 'Consolas', monospace;
+}
+
+/* Gesture display */
+.gesture-display {
+  font-size: 20px;
+  font-weight: 700;
+  color: #7c3aed;
+  text-align: center;
+  letter-spacing: 1px;
+  padding: 4px 0;
+}
+
+.action-display {
+  font-size: 10px;
+  color: #06d6a0;
+  text-align: center;
+}
+
+/* Stats grid */
+.stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: 6px;
+}
+
+.stat {
+  text-align: center;
+  background: #0d0d0d;
+  border-radius: 6px;
+  padding: 6px 4px;
+}
+
+.stat-value {
+  font-size: 14px;
+  font-weight: 700;
+  color: #e2e8f0;
+  font-family: 'Consolas', monospace;
+}
+
+.stat-label {
+  font-size: 8px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+/* Footer */
+.footer {
+  padding: 8px 14px 12px;
+  border-top: 1px solid #1e293b;
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: #475569;
+  font-size: 9px;
+}
+
+kbd {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 3px;
+  padding: 1px 4px;
+  font-size: 9px;
+  font-family: 'Consolas', monospace;
+  color: #94a3b8;
+}
+
+.note {
+  color: #334155;
+  font-style: italic;
+  margin-top: 2px;
+}

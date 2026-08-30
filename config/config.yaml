@@ -1,0 +1,169 @@
+# ============================================================
+#  Hand Gesture Desktop Controller — Configuration
+# ============================================================
+
+# ----------------------------------------------------------
+# Camera
+# ----------------------------------------------------------
+camera:
+  index: 0                # Webcam index (0 = default)
+  width: 1280
+  height: 720
+  fps: 30
+  mirror: true            # Mirror feed so movement feels natural
+  queue_size: 2           # Frame queue depth (drop old frames)
+
+# ----------------------------------------------------------
+# YOLO26 Detection
+# ----------------------------------------------------------
+yolo:
+  model_path: "hand_yolo26.pt"   # Custom hand model (YOLO26-trained), if available
+  fallback_model: "yolo26n.pt"   # Fallback: YOLO26 nano (NMS-free, STAL, fast)
+  confidence: 0.40               # Detection confidence threshold
+  iou: 0.40                      # NMS IoU threshold (low impact: YOLO26 is NMS-free)
+  device: "auto"                 # auto | cuda | cpu
+  input_size: 320                # YOLO internal inference size (px)
+  detect_every_n: 3              # Run YOLO every N frames; reuse bbox in between
+  infer_width: 640               # Pre-resize frame to this width before YOLO
+
+# ----------------------------------------------------------
+# MediaPipe Hands
+# ----------------------------------------------------------
+mediapipe:
+  max_num_hands: 1
+  model_complexity: 1            # 0=lite, 1=full (unused in Tasks API, kept for compat)
+  min_detection_confidence: 0.6
+  min_tracking_confidence: 0.5
+  model_path: "hand_landmarks_detector.tflite"  # Extracted from hand_landmarker.task on first run
+
+# ----------------------------------------------------------
+# Cursor
+# ----------------------------------------------------------
+cursor:
+  smoothing: 0.20        # EMA alpha (lower = smoother, higher = more responsive)
+  sensitivity: 1.5       # Multiplier applied after mapping
+  dead_zone: 8           # Pixels — movement below this is ignored
+  boundary_margin: 5     # Pixels from screen edge to clamp at
+  use_index_finger: true # true = index fingertip, false = palm center
+  # Region of camera feed used for mapping (0.0–1.0, center region)
+  active_region:
+    x_min: 0.10
+    x_max: 0.90
+    y_min: 0.05
+    y_max: 0.85
+
+# ----------------------------------------------------------
+# Gestures
+# ----------------------------------------------------------
+gestures:
+  # -- Cursor movement
+  move:
+    enabled: true
+
+  # -- Left click: index + thumb pinch
+  left_click:
+    enabled: true
+    pinch_threshold: 0.06    # Normalized distance (0–1) to trigger pinch
+    cooldown_ms: 300         # Minimum ms between successive clicks
+
+  # -- Right click: middle + thumb pinch
+  right_click:
+    enabled: true
+    pinch_threshold: 0.06
+    cooldown_ms: 400
+
+  # -- Double click: two pinches within window
+  double_click:
+    enabled: true
+    window_ms: 500           # Max ms between first and second pinch
+
+  # -- Drag: pinch + hold
+  drag:
+    enabled: true
+    hold_delay_ms: 300       # How long pinch must be held before drag starts
+
+  # -- Scroll
+  scroll:
+    enabled: true
+    mode: vertical           # vertical | horizontal | both
+    speed_multiplier: 1.0
+    velocity_scale: 8        # Scroll ticks per unit velocity
+    min_velocity: 0.005      # Below this → no scroll
+    trigger_fingers: 2       # Number of extended fingers needed (2 = index+middle)
+
+  # -- Swipe (keyboard shortcuts)
+  swipe:
+    enabled: true
+    velocity_threshold: 0.05   # Normalized velocity to trigger swipe
+    window_frames: 8           # Frames over which velocity is averaged
+
+  # -- Open palm (neutral / pause)
+  open_palm:
+    enabled: true
+    finger_threshold: 4        # Fingers extended to count as open palm
+
+  # -- Fist (modifier/pause)
+  fist:
+    enabled: true
+    finger_threshold: 1        # Fingers extended ≤ this = fist
+
+# ----------------------------------------------------------
+# Keyboard Gesture Mappings
+# ----------------------------------------------------------
+keyboard_gestures:
+  swipe_right:
+    enabled: true
+    action: alt_tab           # alt_tab | win_tab | custom
+    keys: ["alt", "tab"]
+
+  swipe_left:
+    enabled: true
+    action: alt_shift_tab
+    keys: ["alt", "shift", "tab"]
+
+  swipe_up:
+    enabled: false
+    action: custom
+    keys: ["win", "up"]       # Maximize window
+
+  swipe_down:
+    enabled: false
+    action: custom
+    keys: ["win", "down"]     # Minimize window
+
+# ----------------------------------------------------------
+# Safety
+# ----------------------------------------------------------
+safety:
+  hotkey_enable: "ctrl+alt+g"     # Toggle gesture control
+  hotkey_emergency: "ctrl+alt+x"  # Emergency stop
+  max_cursor_jump: 400            # Max pixels/frame cursor can jump
+  confidence_threshold: 0.50      # Below this → treat as no hand
+  release_on_loss: true           # Release mouse on hand loss
+  auto_release_frames: 10         # Frames without hand before release
+
+# ----------------------------------------------------------
+# WebSocket Server (for browser extension)
+# ----------------------------------------------------------
+websocket:
+  enabled: true
+  host: "127.0.0.1"
+  port: 8765
+
+# ----------------------------------------------------------
+# Dashboard
+# ----------------------------------------------------------
+dashboard:
+  enabled: true
+  show_camera: true
+  camera_display_width: 640
+  camera_display_height: 360
+  theme: dark                # dark | light
+
+# ----------------------------------------------------------
+# Logging
+# ----------------------------------------------------------
+logging:
+  level: "INFO"             # DEBUG | INFO | WARNING | ERROR
+  log_file: "gesture_controller.log"
+  console: true
