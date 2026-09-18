@@ -9,6 +9,7 @@ Features:
     - One-click Enable, Disable, and Emergency Stop controls
 """
 
+import os
 import threading
 import time
 import tkinter as tk
