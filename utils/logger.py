@@ -4,6 +4,7 @@ utils/logger.py — Structured logging setup.
 
 import logging
 import os
+import sys
 from logging.handlers import RotatingFileHandler
 from typing import Optional
 
@@ -39,8 +40,8 @@ def setup_logger(
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    if console:
-        ch = logging.StreamHandler()
+    if console and sys.stdout is not None:
+        ch = logging.StreamHandler(sys.stdout)
         ch.setLevel(numeric_level)
         ch.setFormatter(formatter)
         logger.addHandler(ch)
