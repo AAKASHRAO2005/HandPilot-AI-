@@ -1,5 +1,5 @@
 """
-tests/test_gestures.py — Unit tests for pinch, double-pinch, swipe, and movement tracker.
+tests/test_gestures.py — Unit tests for pinch, double-pinch, swipe, movement tracker, and scale invariance.
 """
 
 import sys
@@ -11,6 +11,7 @@ import pytest
 from gestures.pinch import PinchDetector, DoublePinchDetector
 from gestures.movement import MovementTracker
 from gestures.swipe import SwipeDetector
+from vision.landmarks import get_hand_scale, normalized_pinch_distance
 
 
 # ---------------------------------------------------------------------------
@@ -24,13 +25,15 @@ class MockLandmark:
         self.z = z
 
 
-def make_landmarks(thumb_tip=(0.5, 0.5), index_tip=(0.5, 0.5), **overrides):
-    """Build a 21-landmark list."""
-    # Default: all landmarks at (0.5, 0.5)
+def make_landmarks(thumb_tip=(0.5, 0.5), index_tip=(0.5, 0.5), wrist=(0.5, 0.9), middle_mcp=(0.5, 0.6), **overrides):
+    """Build a 21-landmark list with reasonable anatomical anchors."""
     lms = [MockLandmark(0.5, 0.5) for _ in range(21)]
-    # Thumb tip = index 4, index tip = index 8
-    lms[4] = MockLandmark(*thumb_tip)
-    lms[8] = MockLandmark(*index_tip)
+    lms[0] = MockLandmark(*wrist)        # WRIST
+    lms[4] = MockLandmark(*thumb_tip)    # THUMB_TIP
+    lms[5] = MockLandmark(0.4, 0.6)      # INDEX_MCP
+    lms[8] = MockLandmark(*index_tip)    # INDEX_TIP
+    lms[9] = MockLandmark(*middle_mcp)   # MIDDLE_MCP
+    lms[17] = MockLandmark(0.6, 0.6)     # PINKY_MCP
     return lms
 
 
@@ -61,13 +64,33 @@ class TestPinchDetector:
         result = det.update(lms)  # pinch_hold
         assert result["event"] == "pinch_hold"
 
-    def test_pinch_release(self):
+    def test_pinch_hysteresis_release(self):
+        """Pinch should stay active until distance exceeds threshold_off (1.35x threshold)."""
         det = PinchDetector(finger_a=0, finger_b=1, threshold=0.06)
+        # 1. Trigger pinch at 0.05 (< 0.06)
+        close = make_landmarks(thumb_tip=(0.5, 0.5), index_tip=(0.55, 0.5))
+        r1 = det.update(close)
+        assert r1["is_pinched"]
+
+        # 2. Move to intermediate distance 0.07 (between 0.06 and 0.081)
+        mid = make_landmarks(thumb_tip=(0.5, 0.5), index_tip=(0.57, 0.5))
+        r2 = det.update(mid)
+        # Should STAY pinched due to hysteresis
+        assert r2["is_pinched"]
+        assert r2["event"] == "pinch_hold"
+
+        # 3. Move beyond threshold_off (dist > 0.081)
+        far = make_landmarks(thumb_tip=(0.5, 0.5), index_tip=(0.60, 0.5))
+        r3 = det.update(far)
+        assert not r3["is_pinched"]
+        assert r3["event"] == "pinch_release"
+
+    def test_scale_invariant_pinch(self):
+        det = PinchDetector(finger_a=0, finger_b=1, threshold=0.25, scale_invariant=True)
+        # Close pinch relative to hand scale
         close = make_landmarks(thumb_tip=(0.5, 0.5), index_tip=(0.52, 0.5))
-        far = make_landmarks(thumb_tip=(0.3, 0.5), index_tip=(0.7, 0.5))
-        det.update(close)  # start
-        result = det.update(far)   # release
-        assert result["event"] == "pinch_release"
+        r = det.update(close)
+        assert r["is_pinched"]
 
     def test_reset_clears_state(self):
         det = PinchDetector(finger_a=0, finger_b=1, threshold=0.06)
@@ -75,7 +98,7 @@ class TestPinchDetector:
         det.update(close)
         det.reset()
         result = det.update(close)
-        assert result["event"] == "pinch_start"  # should re-trigger
+        assert result["event"] == "pinch_start"
 
 
 # ---------------------------------------------------------------------------
@@ -95,7 +118,6 @@ class TestDoublePinchDetector:
         close = make_landmarks(thumb_tip=(0.5, 0.5), index_tip=(0.52, 0.5))
         far = make_landmarks(thumb_tip=(0.3, 0.5), index_tip=(0.7, 0.5))
         self._pinch_sequence(det, close, far)
-        # No double click after single pinch
         result = det.update(far)
         assert not result.get("double_click", False)
 

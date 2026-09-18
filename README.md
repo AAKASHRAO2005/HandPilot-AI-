@@ -1,317 +1,223 @@
-# ✋ Hand Gesture Desktop Controller
+# ✋ HandPilot AI — Hand Gesture Desktop Controller
 
-> **AI-powered real-time hand gesture control for Windows** — control your entire desktop using hand movements through your webcam. No mouse required.
+> **AI-powered real-time hand gesture desktop controller for Windows** — control your entire PC naturally using hand gestures through your webcam. No mouse or touch surface required.
 
-Built with **YOLO11** (Ultralytics) + **MediaPipe Hands** + **Windows SendInput API**.
-
----
-
-## 🎥 How It Works
-
-```
-WEBCAM → OpenCV → YOLO11 (hand detection) → MediaPipe Hands (21 landmarks)
-       → Gesture Engine → Windows SendInput → Any Application
-```
-
-The gesture controller operates at the **Windows OS input level**, meaning it works in:
-- Google Chrome / Microsoft Edge
-- Visual Studio Code
-- File Explorer
-- Notepad, Word, Excel
-- PDF readers
-- Any application that accepts mouse/keyboard input
+Built with **YOLO (YOLO26/YOLO11)** + **MediaPipe TFLite Hand Landmarks (21 points)** + **1€ Adaptive Filter** + **Windows SendInput API**.
 
 ---
 
-## ✋ Supported Gestures
+## 🎥 Architecture Overview
 
-| Gesture | Action |
-|---------|--------|
-| Move hand | Move Windows cursor |
-| Index + Thumb pinch | Left click |
-| Middle + Thumb pinch | Right click |
-| Two quick pinches | Double click |
-| Pinch + hold + move | Drag and drop |
-| 2+ fingers up, move hand up/down | Scroll vertically |
-| Fast hand swipe right | Alt+Tab (next window) |
-| Fast hand swipe left | Alt+Shift+Tab (prev window) |
+```
+WEBCAM (30+ FPS) 
+   │
+   ├──► YOLO Detection (Background Thread, Async Non-Blocking)
+   │        ▼
+   ├──► Continuous Landmark-Guided ROI Tracking (Full 30+ FPS)
+   │        ▼
+   ├──► TFLite 21-Joint Inference (XNNPACK CPU / GPU)
+   │        ▼
+   ├──► 21-Point 1€ (One Euro) Adaptive Smoothing Filter
+   │        ▼
+   ├──► Gesture Recognition Engine (Pinch Hysteresis & Scale Invariance)
+   │        ▼
+   ├──► Click-Drift Stabilization & Pointer Ballistics
+   │        ▼
+   ├──► Windows SendInput API (OS-Level Cursor & Keyboard Control)
+   │        ▼
+   └──► Modern Tkinter Dashboard & Chrome WebSocket Extension
+```
+
+The gesture controller operates at the **Windows OS kernel input level**, meaning it controls:
+- **Web Browsers**: Google Chrome, Microsoft Edge, Firefox, Brave
+- **Code Editors & IDEs**: VS Code, Visual Studio, PyCharm
+- **Productivity & Office**: Word, Excel, PowerPoint, Notion, PDF Readers
+- **System**: File Explorer, Start Menu, Window Management (Alt+Tab), Media Players
 
 ---
 
-## 📁 Project Structure
+## ✋ Gesture Signs Guide (Which Sign Does What)
 
+The desktop dashboard features an **interactive live guide** that lights up in glowing cyan whenever a gesture sign is recognized:
+
+| Sign Icon | Hand Gesture Sign | Desktop Action | How to Trigger |
+| :---: | :--- | :--- | :--- |
+| ✋ | **Open Palm / Pointing** | **Move Cursor** | Point or hold open hand. The cursor glides smoothly with 1€ adaptive low-pass filtering. |
+| 🤏 | **Index Pinch** *(Thumb + Index)* | **Left Click** | Quickly bring thumb and index tips together. Automatic click freeze eliminates pointer drift. |
+| ✊ | **Pinch & Hold** *(> 300ms)* | **Drag & Drop** | Pinch thumb + index and hold while moving hand. Releases when fingers open. |
+| ⚡ | **Double Index Pinch** | **Double Click** | Tap index and thumb together twice rapidly within 500ms to open files/folders. |
+| ✌️ | **Middle Pinch** *(Thumb + Middle)* | **Right Click** | Bring thumb and middle fingertip together to trigger context menus. |
+| 📜 | **2 Fingers Extended** | **Smooth Scroll** | Keep index and middle fingers extended together; move hand up or down to scroll. |
+| ↔️ | **Fast Hand Swipe** | **Switch Windows** | Quick horizontal hand swipe triggers `Alt+Tab` (right) or `Alt+Shift+Tab` (left). |
+| 🔒 | **Fist** *(Closed Hand)* | **Pause Cursor** | Close your hand into a fist to park the cursor safely in place without accidental clicks. |
+
+---
+
+## 🚀 Quick Start & Deployment
+
+### Option 1: One-Click Launch (Recommended)
+Simply double-click:
+```bat
+run.bat
 ```
-hand-desktop-controller/
-├── app.py                      # Main entry point
-├── config/
-│   └── config.yaml             # All settings (thresholds, sensitivity, etc.)
-├── vision/
-│   ├── camera.py               # Threaded webcam capture
-│   ├── yolo_detector.py        # YOLO11 hand detection
-│   ├── hand_tracker.py         # YOLO + MediaPipe landmark fusion
-│   ├── landmarks.py            # Landmark utility functions
-│   └── overlay.py              # Camera feed annotations
-├── gestures/
-│   ├── gesture_engine.py       # Main gesture orchestrator
-│   ├── pinch.py                # Pinch & double-pinch detectors
-│   ├── movement.py             # Velocity & position tracker
-│   ├── swipe.py                # Swipe gesture detector
-│   └── state_machine.py        # Mouse interaction state machine
-├── controller/
-│   ├── mouse.py                # Cursor mapping + click dispatch
-│   ├── keyboard.py             # Keyboard shortcut sender
-│   ├── scroll.py               # Scroll wheel controller
-│   └── windows_input.py        # ctypes SendInput (Windows API)
-├── communication/
-│   └── websocket_server.py     # WebSocket server for browser extension
-├── ui/
-│   └── dashboard.py            # tkinter dashboard window
-├── extension/                  # Chrome/Edge browser extension (optional)
-│   ├── manifest.json
-│   ├── background.js
-│   ├── content.js
-│   ├── popup.html / popup.css / popup.js
-├── tests/
-│   ├── test_smoothing.py
-│   ├── test_gestures.py
-│   └── test_windows_input.py
-├── requirements.txt
-└── README.md
+To launch silently in the background without keeping a console window open:
+```bat
+run_silent.vbs
 ```
 
 ---
 
-## ⚙️ Installation
+### Option 2: Automated Installation on a New PC
+Double-click:
+```bat
+install.bat
+```
+This automated script:
+1. Verifies Python 3.10+
+2. Creates a dedicated `.venv` virtual environment
+3. Upgrades `pip` and installs all dependencies from `requirements.txt`
+4. Runs automated tests to verify camera, vision, and input readiness
 
-### 1. Prerequisites
-- Windows 10/11 (64-bit)
-- Python 3.10 or 3.11
-- A webcam
-- (Optional) NVIDIA GPU with CUDA for faster inference
+---
 
-### 2. Clone / copy project
+### Option 3: Manual Command-Line Launch
 ```bash
-cd E:\motion_detector
-```
-
-### 3. Create virtual environment
-```bash
-python -m venv .venv
+# 1. Activate virtual environment (if using one)
 .venv\Scripts\activate
-```
 
-### 4. Install PyTorch
-
-**With CUDA (NVIDIA GPU):**
-```bash
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-```
-
-**CPU only:**
-```bash
-pip install torch torchvision
-```
-
-### 5. Install all other dependencies
-```bash
-pip install -r requirements.txt
-```
-
-### 6. (Optional) Download a custom YOLO11 hand model
-
-Place a YOLO11 hand model (`.pt` file) named `hand_yolo11.pt` in the project root.
-
-If not present, the system automatically falls back to the standard `yolo11n.pt` model combined with MediaPipe — this works for hand tracking without requiring a custom model.
-
-Popular community YOLO hand models:
-- Search for "YOLO11 hand detection model" on Roboflow Universe or HuggingFace
-
----
-
-## 🚀 Running
-
-```bash
+# 2. Run application
 python app.py
 ```
 
-On first run, YOLO11 will automatically download the model weights (~6 MB for `yolo11n.pt`).
+---
 
-### What you'll see:
-1. **Camera window** opens with live hand detection overlay
-2. **Dashboard window** shows system status and controls
-3. Move your hand → cursor follows
-4. Pinch index+thumb → left click
-5. Press `ESC` in the camera window to quit
+### Option 4: Standalone Windows Executable (.exe)
+You can package HandPilot AI into a standalone folder with models and config included:
+```bash
+python package_app.py
+```
+The executable will be generated at `dist/HandPilot-AI/HandPilot-AI.exe`.
 
 ---
 
-## ⌨️ Keyboard Shortcuts
+## ⌨️ Global Hotkeys & Safety
 
-| Shortcut | Action |
-|----------|--------|
-| `Ctrl+Alt+G` | Toggle gesture control ON/OFF |
-| `Ctrl+Alt+X` | Emergency stop (release all buttons) |
-| `ESC` (in camera window) | Quit application |
-| `G` (in camera window) | Toggle gesture control |
-
----
-
-## 🌐 Browser Extension (Optional)
-
-The extension provides visual gesture feedback inside browser tabs. Desktop control works without it.
-
-### Install in Chrome/Edge:
-1. Open `chrome://extensions/` (or `edge://extensions/`)
-2. Enable **Developer mode**
-3. Click **Load unpacked**
-4. Select the `extension/` folder
-
-The extension connects automatically to `ws://127.0.0.1:8765` when the Python app is running.
+| Shortcut | Action | Description |
+| :---: | :---: | :--- |
+| `Ctrl+Alt+G` | **Toggle Controller** | Enables or disables gesture mouse input without closing the app. |
+| `Ctrl+Alt+X` | **Emergency Stop** | Instantly releases all mouse buttons and pauses gesture input. |
+| `ESC` | **Exit App** | Closes camera and quits cleanly. |
 
 ---
 
-## ⚙️ Configuration
+## 🌐 Chrome / Edge Browser Extension (Optional)
 
-Edit [`config/config.yaml`](config/config.yaml) to customise:
+The included browser extension connects to HandPilot AI's local WebSocket server (`ws://127.0.0.1:8765`) to provide in-browser gesture feedback and tab management.
+
+### How to Install:
+1. Open Google Chrome or Microsoft Edge.
+2. Navigate to `chrome://extensions/` (or `edge://extensions/`).
+3. Turn ON **Developer mode** (toggle in top-right corner).
+4. Click **Load unpacked** (top-left button).
+5. Select the `extension/` folder inside this repository.
+6. The HandPilot AI icon will appear in your browser toolbar!
+
+---
+
+## ⚙️ Configuration Reference
+
+All settings can be customized in [`config/config.yaml`](config/config.yaml):
 
 ```yaml
 camera:
-  index: 0        # Change if you have multiple cameras
-  mirror: true    # Flip horizontally for natural feel
+  index: 0              # Camera device index (0 = default webcam)
+  width: 1280
+  height: 720
+  mirror: true          # Horizontal flip for intuitive mirror tracking
+  queue_size: 2         # Low-latency queue depth
 
 cursor:
-  smoothing: 0.20    # Lower = smoother, Higher = more responsive
-  sensitivity: 1.5   # Cursor speed multiplier
-  dead_zone: 8       # Pixels of movement to ignore (reduces jitter)
+  filter_type: "one_euro" # "one_euro" (jitter-free) or "ema"
+  min_cutoff: 1.0       # Lower = less tremor when stationary
+  beta: 0.008           # Higher = zero lag when moving fast
+  acceleration: true    # Pointer ballistics for pixel precision
+  sensitivity: 1.5      # Cursor speed multiplier
+  dead_zone: 6          # Pixel threshold to eliminate hand tremor
 
 gestures:
   left_click:
-    pinch_threshold: 0.06   # How close fingers must be (0–1)
-  scroll:
-    trigger_fingers: 2       # Fingers extended to enable scroll
+    pinch_threshold: 0.06
+    click_freeze_s: 0.18 # Anti-drift click freeze duration
+    scale_invariant: false
 ```
 
 ---
 
-## 🔧 Gesture Priority System
+## 🧪 Running Automated Tests
 
-When multiple gestures could apply simultaneously, the system resolves conflicts:
-
-```
-1. PINCH (left click / drag)    ← Highest priority
-2. RIGHT CLICK
-3. SCROLL
-4. SWIPE (keyboard shortcuts)
-5. CURSOR MOVEMENT              ← Default
-```
-
----
-
-## 🧪 Running Tests
-
+Run the full pytest suite:
 ```bash
-pip install pytest
-python -m pytest tests/ -v
+pytest
 ```
-
+```
+============================= 37 passed in 0.27s ==============================
+```
 Tests cover:
-- EMA smoother (convergence, dead zone, reset)
-- Pinch detector state machine
-- Double-pinch timing
-- Movement velocity calculation
-- Swipe direction detection
-- Windows input structure construction
-- Coordinate mapping (with mocked SendInput)
+- 1€ Filter low-speed tremor reduction and high-speed responsiveness
+- 2D PointOneEuroFilter and PointerBallistics curves
+- Scale-invariant pinch calculations and hysteresis release boundaries
+- Movement tracker velocity calculations
+- Windows input ctypes structure construction and mapping
 
 ---
 
-## 🛡️ Safety Features
-
-| Feature | Description |
-|---------|-------------|
-| `Ctrl+Alt+X` | Immediately release all held mouse buttons |
-| Auto-release on hand loss | If hand disappears during drag, mouse is released |
-| Click cooldown | Prevents accidental double-clicks |
-| Max cursor jump | Limits cursor speed to prevent wild movements |
-| Confidence threshold | Ignores low-confidence detections |
-| Enable/Disable toggle | `Ctrl+Alt+G` or dashboard button |
-
----
-
-## 📊 Performance Targets
-
-| Metric | Target |
-|--------|--------|
-| FPS | 25–30+ |
-| Latency | < 100 ms |
-| GPU | CUDA auto-detected |
-| CPU fallback | Supported |
-
----
-
-## 🏗️ Module Communication
+## 📁 Repository Structure
 
 ```
-app.py
-  │
-  ├── CameraCapture (vision/camera.py)
-  │     └── frames → main loop
-  │
-  ├── HandTracker (vision/hand_tracker.py)
-  │     ├── YOLODetector → bounding boxes
-  │     └── MediaPipe Hands → 21 landmarks per hand
-  │
-  ├── GestureEngine (gestures/gesture_engine.py)
-  │     ├── PinchDetector (left click / drag)
-  │     ├── PinchDetector (right click)
-  │     ├── DoublePinchDetector (double click)
-  │     ├── MovementTracker (velocity)
-  │     ├── SwipeDetector (keyboard shortcuts)
-  │     └── GestureStateMachine (priority resolution)
-  │
-  ├── MouseController (controller/mouse.py)
-  │     └── windows_input.SendInput → cursor / clicks
-  │
-  ├── ScrollController (controller/scroll.py)
-  │     └── windows_input.scroll_vertical → scroll wheel
-  │
-  ├── KeyboardController (controller/keyboard.py)
-  │     └── windows_input.send_hotkey → Alt+Tab etc.
-  │
-  ├── WebSocketServer (communication/websocket_server.py)
-  │     └── ws://127.0.0.1:8765 → browser extension
-  │
-  └── Dashboard (ui/dashboard.py)
-        └── tkinter window + OpenCV preview
+HandPilot-AI/
+├── app.py                      # Main application entry point & threading orchestrator
+├── run.bat                     # Double-clickable Windows launcher
+├── run_silent.vbs              # Silent background launcher
+├── install.bat                 # Automated installation script
+├── package_app.py              # Standalone PyInstaller builder
+├── requirements.txt            # Python dependencies
+├── version.py                  # Version & metadata (v1.0.0)
+│
+├── config/
+│   └── config.yaml             # Core configuration (camera, smoothing, gestures)
+├── assets/
+│   ├── app_icon.ico            # Windows desktop application icon
+│   └── icon256.png             # Hi-res branding icon
+│
+├── vision/
+│   ├── camera.py               # Non-blocking threaded webcam capture
+│   ├── hand_tracker.py         # Continuous landmark-guided tracker & TFLite
+│   ├── yolo_detector.py        # Asynchronous YOLO hand detection
+│   ├── landmarks.py            # Geometric utilities & hand scale metrics
+│   └── overlay.py              # Camera HUD & gesture sign banner
+│
+├── gestures/
+│   ├── gesture_engine.py       # Gesture orchestrator & click-drift stabilizer
+│   ├── pinch.py                # Dual-threshold hysteresis pinch detectors
+│   ├── movement.py             # Filtered velocity & position tracker
+│   ├── swipe.py                # Fast directional swipe recognition
+│   └── state_machine.py        # Interaction state machine
+│
+├── controller/
+│   ├── mouse.py                # Cursor mapping, 1€ smoothing & ballistics
+│   ├── scroll.py               # Inertial sub-tick scroll wheel accumulator
+│   ├── keyboard.py             # Hotkey and shortcut dispatcher
+│   └── windows_input.py        # Low-level ctypes Windows SendInput API
+│
+├── ui/
+│   └── dashboard.py            # Dark-themed Tkinter dashboard & live gesture guide
+├── extension/                  # Chrome / Edge browser extension
+│   ├── manifest.json
+│   ├── background.js / content.js
+│   ├── popup.html / popup.css / popup.js
+│   └── icons/ (16px, 48px, 128px)
+└── tests/
+    ├── test_smoothing.py       # 1€ filter & ballistics tests
+    ├── test_gestures.py        # Pinch, scale-invariance & swipe tests
+    └── test_windows_input.py   # Windows API structure tests
 ```
-
----
-
-## ❓ Troubleshooting
-
-**Camera not opening:**
-- Change `camera.index` in `config.yaml` (try 1, 2, etc.)
-- Ensure no other application has the camera open
-
-**Hand not detected:**
-- Ensure good lighting
-- Keep hand within the central 80% of the frame
-- Adjust `mediapipe.min_detection_confidence` lower (e.g. 0.4)
-
-**Cursor jitter:**
-- Increase `cursor.smoothing` (e.g. 0.10)
-- Increase `cursor.dead_zone` (e.g. 15)
-
-**Clicks too sensitive / not sensitive enough:**
-- Adjust `gestures.left_click.pinch_threshold` in config
-- Or use the dashboard slider at runtime
-
-**YOLO download fails:**
-- Check internet connection
-- Or place `yolo11n.pt` manually in the project root
-
----
-
-## 📜 License
-
-MIT License — free for personal and commercial use.

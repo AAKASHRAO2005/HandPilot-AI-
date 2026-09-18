@@ -11,10 +11,10 @@ camera:
   height: 720
   fps: 30
   mirror: true            # Mirror feed so movement feels natural
-  queue_size: 2           # Frame queue depth (drop old frames)
+  queue_size: 2           # Frame queue depth (read_latest always drains to newest)
 
 # ----------------------------------------------------------
-# YOLO26 Detection
+# YOLO Detection
 # ----------------------------------------------------------
 yolo:
   model_path: "hand_yolo26.pt"   # Custom hand model (YOLO26-trained), if available
@@ -23,28 +23,37 @@ yolo:
   iou: 0.40                      # NMS IoU threshold (low impact: YOLO26 is NMS-free)
   device: "auto"                 # auto | cuda | cpu
   input_size: 320                # YOLO internal inference size (px)
-  detect_every_n: 3              # Run YOLO every N frames; reuse bbox in between
+  detect_every_n: 3              # Run YOLO every N frames; smooth tracking in between
   infer_width: 640               # Pre-resize frame to this width before YOLO
 
 # ----------------------------------------------------------
-# MediaPipe Hands
+# MediaPipe Hands & Landmark Filtering
 # ----------------------------------------------------------
 mediapipe:
   max_num_hands: 1
-  model_complexity: 1            # 0=lite, 1=full (unused in Tasks API, kept for compat)
+  model_complexity: 1            # 0=lite, 1=full
   min_detection_confidence: 0.6
   min_tracking_confidence: 0.5
-  model_path: "hand_landmarks_detector.tflite"  # Extracted from hand_landmarker.task on first run
+  model_path: "hand_landmarks_detector.tflite"  # Extracted from hand_landmarker.task
+  min_cutoff: 1.2                # Landmark 1€ filter min cutoff (Hz, lower = less tremor)
+  beta: 0.02                     # Landmark 1€ filter beta (higher = less lag)
+  d_cutoff: 1.0                  # Landmark derivative cutoff (Hz)
 
 # ----------------------------------------------------------
-# Cursor
+# Cursor & Motion Smoothing
 # ----------------------------------------------------------
 cursor:
-  smoothing: 0.20        # EMA alpha (lower = smoother, higher = more responsive)
-  sensitivity: 1.5       # Multiplier applied after mapping
-  dead_zone: 8           # Pixels — movement below this is ignored
-  boundary_margin: 5     # Pixels from screen edge to clamp at
-  use_index_finger: true # true = index fingertip, false = palm center
+  filter_type: "one_euro"        # "one_euro" (adaptive, jitter-free) | "ema" (legacy)
+  min_cutoff: 1.0                # 1€ filter minimum cutoff frequency (Hz, lower = smoother at rest)
+  beta: 0.008                    # 1€ filter speed coefficient (higher = faster response when moving)
+  d_cutoff: 1.0                  # 1€ filter derivative cutoff frequency
+  acceleration: true             # Pointer ballistics (micro-precision at slow speeds, fast transit at high speeds)
+  smoothing: 0.20                # EMA alpha (only used if filter_type: "ema")
+  sensitivity: 1.5               # Multiplier applied after mapping
+  dead_zone: 6                   # Pixels — movement below this is ignored
+  boundary_margin: 5             # Pixels from screen edge to clamp at
+  max_jump: 350                  # Max pixels/frame cursor can jump
+  use_index_finger: true         # true = index fingertip, false = palm center
   # Region of camera feed used for mapping (0.0–1.0, center region)
   active_region:
     x_min: 0.10
@@ -63,49 +72,52 @@ gestures:
   # -- Left click: index + thumb pinch
   left_click:
     enabled: true
-    pinch_threshold: 0.06    # Normalized distance (0–1) to trigger pinch
-    cooldown_ms: 300         # Minimum ms between successive clicks
+    pinch_threshold: 0.06        # Normalized distance (0–1) to trigger pinch
+    cooldown_ms: 300             # Minimum ms between successive clicks
+    click_freeze_s: 0.18         # Freeze cursor briefly during pinch onset to prevent click-drift
+    scale_invariant: false       # True = normalize by hand size (works at any distance)
 
   # -- Right click: middle + thumb pinch
   right_click:
     enabled: true
     pinch_threshold: 0.06
     cooldown_ms: 400
+    scale_invariant: false
 
   # -- Double click: two pinches within window
   double_click:
     enabled: true
-    window_ms: 500           # Max ms between first and second pinch
+    window_ms: 500               # Max ms between first and second pinch
 
   # -- Drag: pinch + hold
   drag:
     enabled: true
-    hold_delay_ms: 300       # How long pinch must be held before drag starts
+    hold_delay_ms: 300           # How long pinch must be held before drag starts
 
   # -- Scroll
   scroll:
     enabled: true
-    mode: vertical           # vertical | horizontal | both
+    mode: vertical               # vertical | horizontal | both
     speed_multiplier: 1.0
-    velocity_scale: 8        # Scroll ticks per unit velocity
-    min_velocity: 0.005      # Below this → no scroll
-    trigger_fingers: 2       # Number of extended fingers needed (2 = index+middle)
+    velocity_scale: 8            # Scroll ticks per unit velocity
+    min_velocity: 0.005          # Below this → no scroll
+    trigger_fingers: 2           # Number of extended fingers needed (2 = index+middle)
 
   # -- Swipe (keyboard shortcuts)
   swipe:
     enabled: true
-    velocity_threshold: 0.05   # Normalized velocity to trigger swipe
-    window_frames: 8           # Frames over which velocity is averaged
+    velocity_threshold: 0.05     # Normalized velocity to trigger swipe
+    window_frames: 8             # Frames over which velocity is averaged
 
   # -- Open palm (neutral / pause)
   open_palm:
     enabled: true
-    finger_threshold: 4        # Fingers extended to count as open palm
+    finger_threshold: 4          # Fingers extended to count as open palm
 
   # -- Fist (modifier/pause)
   fist:
     enabled: true
-    finger_threshold: 1        # Fingers extended ≤ this = fist
+    finger_threshold: 1          # Fingers extended ≤ this = fist
 
 # ----------------------------------------------------------
 # Keyboard Gesture Mappings
@@ -113,7 +125,7 @@ gestures:
 keyboard_gestures:
   swipe_right:
     enabled: true
-    action: alt_tab           # alt_tab | win_tab | custom
+    action: alt_tab
     keys: ["alt", "tab"]
 
   swipe_left:
@@ -124,12 +136,12 @@ keyboard_gestures:
   swipe_up:
     enabled: false
     action: custom
-    keys: ["win", "up"]       # Maximize window
+    keys: ["win", "up"]
 
   swipe_down:
     enabled: false
     action: custom
-    keys: ["win", "down"]     # Minimize window
+    keys: ["win", "down"]
 
 # ----------------------------------------------------------
 # Safety
@@ -158,12 +170,12 @@ dashboard:
   show_camera: true
   camera_display_width: 640
   camera_display_height: 360
-  theme: dark                # dark | light
+  theme: dark
 
 # ----------------------------------------------------------
 # Logging
 # ----------------------------------------------------------
 logging:
-  level: "INFO"             # DEBUG | INFO | WARNING | ERROR
+  level: "INFO"
   log_file: "gesture_controller.log"
   console: true

@@ -121,12 +121,15 @@ class HandGestureController:
             infer_width=yolo_cfg.get("infer_width", 640),
         )
 
-        # --- Hand Tracker (TFLite, Python 3.14 compatible) ---
+        # --- Hand Tracker (TFLite, Python 3.14 compatible, 1€ filtered) ---
         self._tracker = HandTracker(
             yolo=yolo,
             max_hands=mp_cfg.get("max_num_hands", 1),
-            min_detection_confidence=mp_cfg.get("min_detection_confidence", 0.5),
+            min_detection_confidence=mp_cfg.get("min_detection_confidence", 0.6),
             model_path=mp_cfg.get("model_path", "hand_landmarks_detector.tflite"),
+            min_cutoff=mp_cfg.get("min_cutoff", 1.2),
+            beta=mp_cfg.get("beta", 0.02),
+            d_cutoff=mp_cfg.get("d_cutoff", 1.0),
         )
 
         # --- Controllers ---
@@ -135,12 +138,17 @@ class HandGestureController:
         mouse = MouseController(
             screen_w=wi.SCREEN_W,
             screen_h=wi.SCREEN_H,
+            filter_type=cur_cfg.get("filter_type", "one_euro"),
+            min_cutoff=cur_cfg.get("min_cutoff", 1.0),
+            beta=cur_cfg.get("beta", 0.008),
+            d_cutoff=cur_cfg.get("d_cutoff", 1.0),
             alpha=cur_cfg.get("smoothing", 0.20),
-            dead_zone=cur_cfg.get("dead_zone", 8),
             sensitivity=cur_cfg.get("sensitivity", 1.5),
+            acceleration=cur_cfg.get("acceleration", True),
+            dead_zone=cur_cfg.get("dead_zone", 6),
             active_region=cur_cfg.get("active_region", {}),
-            boundary_margin=cur_cfg.get("boundary_margin", 10),
-            max_jump=cur_cfg.get("max_jump", 200),
+            boundary_margin=cur_cfg.get("boundary_margin", 5),
+            max_jump=cur_cfg.get("max_jump", 350),
             mirror=cam_cfg.get("mirror", True),
         )
         scroll = ScrollController(
@@ -169,6 +177,19 @@ class HandGestureController:
         # --- Global Hotkeys ---
         self._register_hotkeys(safety_cfg)
 
+        # --- Dashboard instance on MAIN thread (required by Tcl/Tk) ---
+        if dash_cfg.get("enabled", True):
+            self._dashboard = Dashboard(
+                on_enable=self._engine.enable,
+                on_disable=self._engine.disable,
+                on_emergency=self._engine.emergency_stop,
+                on_camera_change=self._camera.switch_camera,
+                on_sensitivity_change=lambda v: self._engine.update_cursor_config(sensitivity=v, beta=0.005 * v),
+                on_scroll_speed_change=lambda v: self._engine.update_scroll_config(speed_multiplier=v),
+                on_threshold_change=self._update_pinch_threshold,
+                initial_camera=cam_cfg.get("index", 0),
+            )
+
         # --- Launch processing thread ---
         self._running = True
         self._proc_thread = threading.Thread(
@@ -178,18 +199,7 @@ class HandGestureController:
         )
         self._proc_thread.start()
 
-        # --- Dashboard runs on MAIN thread (required by Tcl/Tk) ---
-        if dash_cfg.get("enabled", True):
-            self._dashboard = Dashboard(
-                on_enable=self._engine.enable,
-                on_disable=self._engine.disable,
-                on_emergency=self._engine.emergency_stop,
-                on_camera_change=self._camera.switch_camera,
-                on_sensitivity_change=lambda v: self._engine.update_cursor_config(alpha=v / 5),
-                on_scroll_speed_change=lambda v: self._engine.update_scroll_config(speed_multiplier=v),
-                on_threshold_change=self._update_pinch_threshold,
-                initial_camera=cam_cfg.get("index", 0),
-            )
+        if self._dashboard:
             # This blocks until dashboard is closed (it runs tkinter mainloop)
             self._dashboard.run()
         else:
@@ -296,7 +306,7 @@ class HandGestureController:
                     self._engine.emergency_stop()
 
             # 8. Stop if dashboard was closed
-            if self._dashboard and not self._dashboard.is_running:
+            if self._dashboard and self._dashboard.has_started and not self._dashboard.is_running:
                 log.info("Dashboard closed — shutting down.")
                 self._running = False
 

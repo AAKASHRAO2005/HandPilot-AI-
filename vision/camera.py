@@ -178,9 +178,12 @@ class CameraCapture:
                 frame = cv2.flip(frame, 1)
 
             # Drop oldest frame if queue is full (keep latest)
-            if self._queue.full():
+            while self._queue.full():
                 try:
                     self._queue.get_nowait()
                 except Empty:
-                    pass
-            self._queue.put(frame)
+                    break
+            try:
+                self._queue.put_nowait(frame)
+            except Exception:
+                pass

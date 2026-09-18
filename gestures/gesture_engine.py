@@ -1,19 +1,12 @@
 """
-gestures/gesture_engine.py — Main gesture recognition orchestrator.
+gestures/gesture_engine.py — Main gesture recognition orchestrator with click-drift stabilization.
 
 Per-frame pipeline:
     1. Extract landmarks from HandResult.
     2. Update all gesture detectors.
-    3. Apply priority rules.
+    3. Apply priority rules & click-drift stabilization.
     4. Emit GestureEvent.
     5. Drive controllers.
-
-Priority (highest → lowest):
-    1. PINCH (left click / drag)
-    2. RIGHT CLICK
-    3. SCROLL (2 fingers up, vertical movement)
-    4. SWIPE (keyboard shortcuts)
-    5. CURSOR MOVEMENT (default)
 """
 
 import time
@@ -43,9 +36,9 @@ log = setup_logger(__name__)
 @dataclass
 class GestureEvent:
     """Snapshot of gesture state for one frame."""
-    gesture: str = "none"        # Human-readable gesture name
-    action: str = "none"         # Action being taken
-    state: str = "IDLE"          # State machine state name
+    gesture: str = "none"
+    action: str = "none"
+    state: str = "IDLE"
     cursor_x: int = 0
     cursor_y: int = 0
     fps: float = 0.0
@@ -60,12 +53,6 @@ class GestureEvent:
 class GestureEngine:
     """
     Orchestrates all gesture detectors and drives controllers.
-
-    Args:
-        cfg: Full config dict (from config.yaml).
-        mouse: MouseController instance.
-        scroll: ScrollController instance.
-        keyboard: KeyboardController instance.
     """
 
     def __init__(
@@ -90,9 +77,12 @@ class GestureEngine:
         dc_cfg = g.get("double_click", {})
         drag_cfg = g.get("drag", {})
 
+        scale_inv = lc_cfg.get("scale_invariant", False)
+
         self._left_pinch = PinchDetector(
             finger_a=0, finger_b=1,
             threshold=lc_cfg.get("pinch_threshold", 0.06),
+            scale_invariant=scale_inv,
             name="index_pinch",
         )
         self._double_pinch = DoublePinchDetector(
@@ -102,6 +92,7 @@ class GestureEngine:
         self._right_pinch = PinchDetector(
             finger_a=0, finger_b=2,
             threshold=rc_cfg.get("pinch_threshold", 0.06),
+            scale_invariant=scale_inv,
             name="middle_pinch",
         )
 
@@ -137,6 +128,7 @@ class GestureEngine:
         self._drag_hold_ms = drag_cfg.get("hold_delay_ms", 300.0)
         self._confidence_threshold = s.get("confidence_threshold", 0.50)
         self._use_index_finger = cfg.get("cursor", {}).get("use_index_finger", True)
+        self._click_freeze_duration = lc_cfg.get("click_freeze_s", 0.18)
 
         # Internal state
         self._no_hand_frames = 0
@@ -150,15 +142,12 @@ class GestureEngine:
 
     def process(
         self,
-        hand_results: list,  # List[HandResult]
+        hand_results: list,
         fps: float = 0.0,
         latency_ms: float = 0.0,
     ) -> GestureEvent:
         """
         Process one frame's hand detection results and drive controllers.
-
-        Returns:
-            GestureEvent summarising what happened.
         """
         if not self._enabled:
             return GestureEvent(gesture="disabled", action="control_off",
@@ -173,7 +162,7 @@ class GestureEngine:
                                 state=self._sm.state_name, fps=fps, latency_ms=latency_ms)
 
         self._no_hand_frames = 0
-        hand = hand_results[0]  # Primary hand
+        hand = hand_results[0]
 
         if hand.confidence < self._confidence_threshold:
             return GestureEvent(gesture="low_confidence", action="none",
@@ -183,7 +172,7 @@ class GestureEngine:
         landmarks = hand.landmarks
         extended = count_extended_fingers(landmarks)
 
-        # Get control point (index fingertip or palm center)
+        # Control point (index fingertip or palm center)
         if self._use_index_finger:
             cx, cy = get_fingertip(landmarks, finger=1)
         else:
@@ -192,18 +181,22 @@ class GestureEngine:
         # Update movement tracker
         vx, vy = self._movement.update(cx, cy)
 
-        # === PRIORITY 1: Left pinch (click / drag) ===
+        # === Detect Pinches ===
         pinch_result = self._double_pinch.update(landmarks)
         pinch_dist = pinch_result["distance"]
         pinch_event = pinch_result["event"]
         is_double = pinch_result.get("double_click", False)
         pinch_held = pinch_result["hold_duration"]
         is_pinched = pinch_result["is_pinched"]
+        is_closing = pinch_result.get("is_closing", False)
 
-        # === PRIORITY 2: Right pinch ===
         right_result = self._right_pinch.update(landmarks)
 
-        # === Update cursor first (always) ===
+        # Click-drift stabilization: if fingers are closing in for a click, freeze cursor
+        if is_closing and not self._drag_started:
+            self._mouse.freeze(self._click_freeze_duration)
+
+        # === Update cursor ===
         sx, sy = self._mouse.update_cursor(cx, cy)
 
         gesture = "tracking"
@@ -211,6 +204,7 @@ class GestureEngine:
 
         # --- Handle double click ---
         if is_double and self._dc_enabled:
+            self._mouse.freeze(0.20)
             self._mouse.double_click()
             gesture = "double_pinch"
             action = "double_click"
@@ -223,17 +217,18 @@ class GestureEngine:
             self._sm.transition(MouseState.PINCH_START)
             self._pinch_start_time = time.perf_counter()
             self._drag_started = False
+            self._mouse.freeze(self._click_freeze_duration)
             gesture = "pinch"
             action = "left_click"
             self._mouse.left_click(cooldown_ms=self._lc_cooldown)
 
         elif self._drag_enabled and pinch_event == "pinch_hold":
-            hold_ms = pinch_held * 1000
+            hold_ms = pinch_held * 1000.0
             if hold_ms > self._drag_hold_ms and not self._drag_started:
-                # Transition to drag
                 self._drag_started = True
                 self._mouse.start_drag()
                 self._sm.transition(MouseState.DRAG)
+
             if self._drag_started:
                 self._sm.transition(MouseState.DRAG)
                 gesture = "pinch_hold"
@@ -246,18 +241,20 @@ class GestureEngine:
             if self._drag_started:
                 self._mouse.end_drag()
                 self._drag_started = False
+            self._mouse.unfreeze()
             self._sm.transition(MouseState.TRACKING)
             gesture = "pinch_release"
             action = "release"
 
-        # --- Handle right click (only when not left-pinching) ---
+        # --- Handle right click ---
         elif self._rc_enabled and right_result["event"] == "pinch_start":
+            self._mouse.freeze(self._click_freeze_duration)
             self._sm.transition(MouseState.RIGHT_CLICK)
             self._mouse.right_click(cooldown_ms=self._rc_cooldown)
             gesture = "middle_pinch"
             action = "right_click"
 
-        # --- Handle scroll (2 fingers extended, vertical movement) ---
+        # --- Handle scroll (2+ fingers extended, vertical movement) ---
         elif (
             not is_pinched
             and self._scroll_enabled
@@ -266,7 +263,7 @@ class GestureEngine:
         ):
             delta_y = self._movement.delta[1]
             delta_x = self._movement.delta[0]
-            scrolled = self._scroll.scroll_vertical(delta_y * 30)
+            scrolled = self._scroll.scroll_vertical(delta_y * 30.0)
             if scrolled:
                 self._sm.transition(MouseState.SCROLL)
                 gesture = "open_hand_vertical"
@@ -274,7 +271,7 @@ class GestureEngine:
             else:
                 self._sm.transition(MouseState.TRACKING)
 
-        # --- Handle swipe (keyboard shortcuts) ---
+        # --- Handle swipe ---
         elif self._swipe_enabled and not is_pinched and not self._sm.is_pinching:
             swipe_dir = self._swipe.update(vx, vy)
             if swipe_dir:
@@ -283,7 +280,7 @@ class GestureEngine:
                 gesture = swipe_dir
                 action = f"keyboard_{swipe_dir}"
             else:
-                self._swipe.update(0, 0)  # Feed zeros when not swiping
+                self._swipe.update(0, 0)
                 self._sm.transition(MouseState.TRACKING)
 
         # --- Default: cursor tracking ---
@@ -295,7 +292,7 @@ class GestureEngine:
                                 fps, latency_ms, hand.confidence)
 
     # ------------------------------------------------------------------
-    # Enable / Disable
+    # Enable / Disable / Stop
     # ------------------------------------------------------------------
 
     def enable(self) -> None:
@@ -319,15 +316,10 @@ class GestureEngine:
         return self._enabled
 
     def emergency_stop(self) -> None:
-        """Immediately release all held buttons and disable."""
         self._mouse.emergency_release()
         self._drag_started = False
         self._sm.reset()
         log.warning("EMERGENCY STOP triggered!")
-
-    # ------------------------------------------------------------------
-    # Config updates (from dashboard sliders)
-    # ------------------------------------------------------------------
 
     def update_cursor_config(self, **kwargs) -> None:
         self._mouse.update_config(**kwargs)
@@ -335,16 +327,13 @@ class GestureEngine:
     def update_scroll_config(self, **kwargs) -> None:
         self._scroll.update_config(**kwargs)
 
-    # ------------------------------------------------------------------
-    # Internal
-    # ------------------------------------------------------------------
-
     def _handle_hand_loss(self) -> None:
         if self._drag_started:
             log.warning("Hand lost during drag — releasing mouse button.")
             self._mouse.end_drag()
             self._drag_started = False
         self._mouse.reset_smooth()
+        self._scroll.reset()
         self._movement.reset()
         self._left_pinch.reset()
         self._right_pinch.reset()

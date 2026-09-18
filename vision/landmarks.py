@@ -1,8 +1,8 @@
 """
 vision/landmarks.py — MediaPipe landmark utilities.
 
-Provides helper functions to extract meaningful positions and distances from
-the raw 21-point MediaPipe hand landmark set.
+Provides helper functions to extract meaningful positions, distances, and hand scale
+from the 21-point MediaPipe hand landmark set.
 
 MediaPipe landmark indices:
     0  = WRIST
@@ -37,7 +37,7 @@ FINGER_PIPS = [THUMB_IP, INDEX_PIP, MIDDLE_PIP, RING_PIP, PINKY_PIP]
 # ---------------------------------------------------------------------------
 # Type alias: landmark list from mediapipe (each has .x, .y, .z all in [0,1])
 # ---------------------------------------------------------------------------
-LandmarkList = list  # mediapipe.framework.formats.landmark_pb2.NormalizedLandmarkList
+LandmarkList = list
 
 
 def lm_xy(landmarks: LandmarkList, idx: int) -> Tuple[float, float]:
@@ -70,35 +70,61 @@ def get_palm_center(landmarks: LandmarkList) -> Tuple[float, float]:
     return (sum(xs) / len(xs), sum(ys) / len(ys))
 
 
+def get_hand_scale(landmarks: LandmarkList) -> float:
+    """
+    Compute reference anatomical scale of the hand.
+    Uses distance from WRIST to MIDDLE_MCP + palm width across knuckles.
+    Guaranteed > 1e-4 to prevent division by zero.
+    """
+    palm_length = lm_distance(landmarks, WRIST, MIDDLE_MCP)
+    palm_width = lm_distance(landmarks, INDEX_MCP, PINKY_MCP)
+    scale = (palm_length * 0.7 + palm_width * 0.3)
+    return max(0.01, scale)
+
+
 def pinch_distance(landmarks: LandmarkList, finger_a: int, finger_b: int) -> float:
     """
-    Distance between two fingertips (normalized).
+    Raw Euclidean distance between two fingertips (normalized coords [0, 1]).
 
     finger_a, finger_b: 0=thumb, 1=index, 2=middle, 3=ring, 4=pinky
     """
     return lm_distance(landmarks, FINGERTIPS[finger_a], FINGERTIPS[finger_b])
 
 
+def normalized_pinch_distance(
+    landmarks: LandmarkList,
+    finger_a: int,
+    finger_b: int,
+) -> float:
+    """
+    Scale-invariant distance between two fingertips.
+    Normalizes raw distance by palm scale so pinch thresholds remain constant
+    regardless of distance between hand and camera.
+    A typical pinch yields <= 0.25 in normalized ratio.
+    """
+    raw_dist = pinch_distance(landmarks, finger_a, finger_b)
+    scale = get_hand_scale(landmarks)
+    return raw_dist / scale
+
+
 def is_finger_extended(landmarks: LandmarkList, finger: int) -> bool:
     """
     Heuristic to check if a finger is extended (roughly straight).
 
-    Compares fingertip y-coord with PIP joint y-coord.
-    (Lower y = higher on screen in normalized coords.)
-
-    For the thumb, uses x-axis comparison since it bends sideways.
+    Compares fingertip distance from wrist vs PIP distance from wrist.
+    This works reliably at any hand orientation/tilt, unlike simple y-axis comparison.
     """
+    tip_dist = lm_distance(landmarks, WRIST, FINGERTIPS[finger])
+    pip_dist = lm_distance(landmarks, WRIST, FINGER_PIPS[finger])
+
     if finger == 0:
-        # Thumb: compare tip.x to MCP.x (for right hand mirrored)
-        tip_x = landmarks[THUMB_TIP].x
-        mcp_x = landmarks[THUMB_MCP].x
-        # Thumb is extended if tip is further from palm than MCP
-        # For mirrored camera: extended thumb moves toward smaller x
-        return abs(tip_x - landmarks[INDEX_MCP].x) > abs(mcp_x - landmarks[INDEX_MCP].x)
+        # Thumb: tip further from pinky MCP than thumb MCP
+        tip_pinky = lm_distance(landmarks, PINKY_MCP, THUMB_TIP)
+        mcp_pinky = lm_distance(landmarks, PINKY_MCP, THUMB_MCP)
+        return tip_pinky > mcp_pinky * 1.1
     else:
-        tip_y = landmarks[FINGERTIPS[finger]].y
-        pip_y = landmarks[FINGER_PIPS[finger]].y
-        return tip_y < pip_y  # tip above PIP = extended
+        # Fingers: tip further from wrist than PIP joint
+        return tip_dist > pip_dist * 1.12
 
 
 def count_extended_fingers(landmarks: LandmarkList) -> int:

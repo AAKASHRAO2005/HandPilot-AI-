@@ -1,28 +1,24 @@
 # ============================================================
-#  Hand Gesture Desktop Controller — Python Dependencies
+#  HandPilot AI — Python Dependencies
 # ============================================================
 
-# AI / Computer Vision
-ultralytics>=8.3.0          # YOLO11
-opencv-python>=4.9.0        # Webcam capture + drawing
-mediapipe>=0.10.14          # Hand landmark detection (21 points)
-numpy>=1.26.0               # Array math
+# Computer Vision & Deep Learning
+ultralytics>=8.3.0          # YOLO hand detection (YOLO26 / YOLO11)
+opencv-python>=4.9.0        # High-speed webcam capture & overlay rendering
+numpy>=1.26.0               # Numerical computations & vector geometry
+ai-edge-litert>=1.0.0; python_version>='3.14'  # TFLite runtime for Python 3.14+
+mediapipe>=0.10.14; python_version<'3.14'     # MediaPipe for Python <3.14
 
-# Deep learning backend
-# torch and torchvision are installed separately depending on CUDA availability.
-# See README.md "Installation" section for GPU vs CPU install commands.
-# torch>=2.2.0
-# torchvision>=0.17.0
+# Windows Input & System Control
+pywin32>=306                # Win32 API metrics & process management
+pynput>=1.7.6               # Global safety hotkeys (Ctrl+Alt+G / Ctrl+Alt+X)
 
-# Configuration
-PyYAML>=6.0
+# Networking & Communication
+websockets>=12.0            # Real-time WebSocket server for Chrome extension
 
-# Windows input control
-pywin32>=306                # win32api, win32con for additional Windows features
-pynput>=1.7.6               # Global hotkey listener
+# Configuration & UI
+PyYAML>=6.0                 # YAML configuration parser
+Pillow>=10.3.0              # Image conversion for Tkinter dashboard
 
-# WebSocket server (browser extension communication)
-websockets>=12.0
-
-# Image handling for tkinter dashboard
-Pillow>=10.3.0
+# Testing (Development & CI)
+pytest>=8.0.0

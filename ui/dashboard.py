@@ -1,21 +1,18 @@
 """
-ui/dashboard.py — tkinter desktop dashboard for the Hand Gesture Controller.
+ui/dashboard.py — Modern Dark-Themed Desktop Dashboard with Interactive Gesture Guide.
 
-Provides:
-    - Live status panel (camera, YOLO, tracking, controller)
-    - Current gesture and action display
-    - Cursor position readout
-    - FPS and latency meters
-    - Sliders for sensitivity, scroll speed, and gesture threshold
-    - Enable/Disable button
-    - Camera selector
-    - Embedded live camera preview
+Features:
+    - Real-time gesture recognition guide showing which sign does what
+    - Active sign highlighting: cards dynamically light up when the user makes the gesture
+    - Embedded live camera preview with hand skeleton and overlays
+    - System status indicators, performance gauges, and fine-tuning sliders
+    - One-click Enable, Disable, and Emergency Stop controls
 """
 
 import threading
 import time
 import tkinter as tk
-from tkinter import ttk, font
+from tkinter import ttk
 from typing import Callable, Optional, Dict, Any
 
 import cv2
@@ -27,41 +24,94 @@ from utils.logger import setup_logger
 log = setup_logger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Colour palette (dark theme)
-# ---------------------------------------------------------------------------
-BG = "#0d0d0d"
-PANEL_BG = "#141414"
-CARD_BG = "#1a1a2e"
-ACCENT = "#7c3aed"       # Purple
-ACCENT2 = "#06d6a0"      # Teal
-DANGER = "#ef233c"
-WARNING = "#f77f00"
-TEXT = "#e2e8f0"
-TEXT_DIM = "#64748b"
-GREEN = "#22c55e"
-RED = "#ef4444"
-YELLOW = "#eab308"
-BORDER = "#2d2d4e"
-
-
-def _dot(canvas: tk.Canvas, color: str) -> None:
-    canvas.configure(bg=color)
+# Modern Dark Palette
+BG_MAIN = "#0b0f19"         # Deep Navy / Black
+PANEL_BG = "#111827"        # Dark Slate
+CARD_BG = "#1e293b"         # Card Background
+CARD_ACTIVE = "#0f3a40"     # Active Highlight Card Background
+BORDER_COLOR = "#334155"    # Subtle Border
+BORDER_ACTIVE = "#06b6d4"   # Neon Cyan Active Border
+ACCENT_CYAN = "#06b6d4"     # Cyan
+ACCENT_GREEN = "#10b981"    # Emerald
+ACCENT_PURPLE = "#8b5cf6"   # Purple
+ACCENT_RED = "#ef4444"      # Crimson
+ACCENT_YELLOW = "#f59e0b"   # Amber
+TEXT_PRIMARY = "#f8fafc"    # Bright White
+TEXT_SECONDARY = "#94a3b8"  # Slate Muted
+TEXT_MUTED = "#64748b"
 
 
 class Dashboard:
     """
-    Dark-themed tkinter dashboard window.
-
-    Args:
-        on_enable: Callback when Enable button pressed.
-        on_disable: Callback when Disable button pressed.
-        on_emergency: Callback when Emergency Stop pressed.
-        on_camera_change: Callback(int) when camera index changed.
-        on_sensitivity_change: Callback(float) for cursor sensitivity slider.
-        on_scroll_speed_change: Callback(float) for scroll speed slider.
-        on_threshold_change: Callback(float) for gesture threshold slider.
+    Tkinter dashboard with real-time gesture feedback and interactive guide.
     """
+
+    GESTURE_GUIDE_ITEMS = [
+        {
+            "id": "move",
+            "keys": ["tracking", "cursor_move"],
+            "icon": "✋",
+            "name": "Open Palm / Index Point",
+            "action": "Move Cursor",
+            "detail": "Smooth 1€ filtered cursor navigation",
+        },
+        {
+            "id": "left_click",
+            "keys": ["pinch", "left_click"],
+            "icon": "🤏",
+            "name": "Index Pinch (Thumb + Index)",
+            "action": "Left Click",
+            "detail": "Quick tap to click with drift freeze",
+        },
+        {
+            "id": "drag",
+            "keys": ["pinch_hold", "drag", "left_click_hold"],
+            "icon": "✊",
+            "name": "Pinch & Hold",
+            "action": "Drag & Drop",
+            "detail": "Hold pinch > 300ms to grab and drag",
+        },
+        {
+            "id": "double_click",
+            "keys": ["double_pinch", "double_click"],
+            "icon": "⚡",
+            "name": "Double Index Pinch",
+            "action": "Double Click",
+            "detail": "Two rapid pinches within 500ms",
+        },
+        {
+            "id": "right_click",
+            "keys": ["middle_pinch", "right_click"],
+            "icon": "✌️",
+            "name": "Middle Pinch (Thumb + Middle)",
+            "action": "Right Click",
+            "detail": "Opens context / right-click menu",
+        },
+        {
+            "id": "scroll",
+            "keys": ["open_hand_vertical", "scroll_vertical"],
+            "icon": "📜",
+            "name": "2 Fingers Up / Down",
+            "action": "Smooth Scroll",
+            "detail": "Index + Middle together moves page",
+        },
+        {
+            "id": "swipe",
+            "keys": ["swipe_right", "swipe_left", "swipe_up", "swipe_down", "swipe"],
+            "icon": "↔️",
+            "name": "Quick Hand Swipe",
+            "action": "Switch Window",
+            "detail": "Swipe left/right triggers Alt+Tab",
+        },
+        {
+            "id": "fist",
+            "keys": ["fist"],
+            "icon": "🔒",
+            "name": "Fist (Closed Hand)",
+            "action": "Pause Cursor",
+            "detail": "Freezes cursor safely in place",
+        },
+    ]
 
     def __init__(
         self,
@@ -83,12 +133,12 @@ class Dashboard:
         self._on_threshold_change = on_threshold_change or (lambda v: None)
 
         self._root: Optional[tk.Tk] = None
-        self._running = False
+        self._running = True
+        self._started = False
         self._frame_image: Optional[ImageTk.PhotoImage] = None
         self._frame_lock = threading.Lock()
         self._pending_frame: Optional[np.ndarray] = None
 
-        # Shared state (updated from main thread)
         self._status: Dict[str, Any] = {
             "camera": False,
             "yolo": False,
@@ -106,33 +156,31 @@ class Dashboard:
             "ws_clients": 0,
         }
         self._camera_index = initial_camera
-
-    # ------------------------------------------------------------------
-    # Public API (called from main thread or other threads)
-    # ------------------------------------------------------------------
+        self._guide_cards = {}
 
     def update_status(self, **kwargs) -> None:
-        """Thread-safe status update."""
         self._status.update(kwargs)
 
     def update_frame(self, frame: np.ndarray) -> None:
-        """Push a new BGR frame for display."""
         with self._frame_lock:
             self._pending_frame = frame
 
     def run(self) -> None:
-        """Build and run the dashboard (blocking — run in its own thread)."""
         self._build_ui()
+        if self._root:
+            self._root.protocol("WM_DELETE_WINDOW", self.close)
         self._running = True
+        self._started = True
         self._schedule_refresh()
         try:
             self._root.mainloop()
         except Exception as e:
-            log.error(f"Dashboard error: {e}")
+            log.error(f"Dashboard mainloop error: {e}")
         finally:
             self._running = False
 
     def close(self) -> None:
+        self._running = False
         if self._root:
             try:
                 self._root.quit()
@@ -142,225 +190,288 @@ class Dashboard:
 
     @property
     def is_running(self) -> bool:
+        if not self._started:
+            return True
         return self._running
 
+    @property
+    def has_started(self) -> bool:
+        return self._started
+
     # ------------------------------------------------------------------
-    # UI construction
+    # UI Construction
     # ------------------------------------------------------------------
 
     def _build_ui(self) -> None:
         root = tk.Tk()
-        root.title("✋ Hand Gesture Desktop Controller")
-        root.configure(bg=BG)
+        root.title("HandPilot AI — Hand Gesture Controller")
+        root.configure(bg=BG_MAIN)
         root.resizable(False, False)
 
-        # Fonts
-        try:
-            root.tk.call("font", "create", "TitleFont", "-family", "Segoe UI", "-size", 14, "-weight", "bold")
-            title_font = ("Segoe UI", 14, "bold")
-            body_font = ("Segoe UI", 10)
-            mono_font = ("Consolas", 10)
-            big_font = ("Segoe UI", 18, "bold")
-            small_font = ("Segoe UI", 8)
-        except Exception:
-            title_font = ("Arial", 14, "bold")
-            body_font = ("Arial", 10)
-            mono_font = ("Courier", 10)
-            big_font = ("Arial", 18, "bold")
-            small_font = ("Arial", 8)
+        if os.path.exists("assets/app_icon.ico"):
+            try:
+                root.iconbitmap("assets/app_icon.ico")
+            except Exception:
+                pass
+
+        f_title = ("Segoe UI", 13, "bold")
+        f_head = ("Segoe UI", 11, "bold")
+        f_sub = ("Segoe UI", 9)
+        f_bold = ("Segoe UI", 9, "bold")
+        f_mono = ("Consolas", 9)
+        f_badge = ("Segoe UI", 8, "bold")
 
         self._root = root
-        self._fonts = {
-            "title": title_font, "body": body_font, "mono": mono_font,
-            "big": big_font, "small": small_font,
-        }
 
-        # === HEADER ===
-        header = tk.Frame(root, bg=ACCENT, pady=8)
-        header.grid(row=0, column=0, columnspan=2, sticky="ew")
-        tk.Label(header, text="✋  HAND GESTURE DESKTOP CONTROLLER",
-                 fg="white", bg=ACCENT, font=title_font).pack()
+        # === 1. TOP HEADER APP BAR ===
+        top_bar = tk.Frame(root, bg="#0f172a", padx=16, pady=10, relief="flat")
+        top_bar.grid(row=0, column=0, columnspan=2, sticky="ew")
 
-        # === LEFT PANEL: Camera feed ===
-        left = tk.Frame(root, bg=PANEL_BG, padx=6, pady=6)
-        left.grid(row=1, column=0, sticky="nsew", padx=(8, 4), pady=8)
+        title_frame = tk.Frame(top_bar, bg="#0f172a")
+        title_frame.pack(side="left")
+        tk.Label(title_frame, text="✋ HANDPILOT AI", fg=ACCENT_CYAN, bg="#0f172a", font=f_title).pack(side="left")
+        tk.Label(title_frame, text="  |  Smooth & Accurate Motion Controller", fg=TEXT_SECONDARY, bg="#0f172a", font=f_sub).pack(side="left")
 
-        tk.Label(left, text="LIVE CAMERA", fg=TEXT_DIM, bg=PANEL_BG, font=small_font).pack(anchor="w")
-        self._cam_label = tk.Label(left, bg="black", width=640, height=360)
+        # Top Right Status Badges
+        top_right = tk.Frame(top_bar, bg="#0f172a")
+        top_right.pack(side="right")
+
+        self._pill_tracking = tk.Label(top_right, text="● TRACKING", fg=TEXT_MUTED, bg="#1e293b", font=f_badge, padx=8, pady=3)
+        self._pill_tracking.pack(side="left", padx=4)
+
+        self._pill_mode = tk.Label(top_right, text="ACTIVE", fg="#10b981", bg="#064e3b", font=f_badge, padx=8, pady=3)
+        self._pill_mode.pack(side="left", padx=4)
+
+        # === 2. MAIN CONTENT SPLIT (Left: Camera + Quick Controls, Right: Gesture Guide) ===
+        content_frame = tk.Frame(root, bg=BG_MAIN, padx=12, pady=10)
+        content_frame.grid(row=1, column=0, columnspan=2, sticky="nsew")
+
+        # --- LEFT COLUMN (Camera + Performance + Controls) ---
+        left_col = tk.Frame(content_frame, bg=BG_MAIN)
+        left_col.pack(side="left", fill="both", padx=(0, 10))
+
+        # Camera Card
+        cam_card = tk.Frame(left_col, bg=CARD_BG, padx=8, pady=8, highlightthickness=1, highlightbackground=BORDER_COLOR)
+        cam_card.pack(fill="x")
+
+        cam_header = tk.Frame(cam_card, bg=CARD_BG)
+        cam_header.pack(fill="x", pady=(0, 6))
+        tk.Label(cam_header, text="LIVE CAMERA FEED", fg=TEXT_PRIMARY, bg=CARD_BG, font=f_bold).pack(side="left")
+        self._res_lbl = tk.Label(cam_header, text="1280x720 (Mirrored)", fg=TEXT_MUTED, bg=CARD_BG, font=f_mono)
+        self._res_lbl.pack(side="right")
+
+        self._cam_label = tk.Label(cam_card, bg="#050811", width=560, height=315)
         self._cam_label.pack()
 
-        # === RIGHT PANEL: Controls ===
-        right = tk.Frame(root, bg=PANEL_BG, padx=10, pady=8, width=300)
-        right.grid(row=1, column=1, sticky="nsew", padx=(4, 8), pady=8)
-        right.grid_propagate(False)
+        # Telemetry Row below camera
+        tele_row = tk.Frame(cam_card, bg=CARD_BG, pady=6)
+        tele_row.pack(fill="x")
 
-        def section(parent, label):
-            f = tk.Frame(parent, bg=CARD_BG, padx=8, pady=6, relief="flat", bd=0)
-            f.pack(fill="x", pady=4)
-            tk.Label(f, text=label, fg=ACCENT2, bg=CARD_BG, font=small_font).pack(anchor="w")
-            sep = tk.Frame(f, bg=BORDER, height=1)
-            sep.pack(fill="x", pady=(2, 4))
-            return f
+        self._fps_gauge = tk.Label(tele_row, text="FPS: 30.0", fg=ACCENT_GREEN, bg=CARD_BG, font=f_mono)
+        self._fps_gauge.pack(side="left", padx=(4, 12))
 
-        # -- System status --
-        sf = section(right, "SYSTEM STATUS")
-        self._status_dots = {}
-        self._status_labels = {}
-        for key, label in [("camera", "Camera"), ("yolo", "YOLO26"), ("tracking", "Tracking"), ("enabled", "Controller")]:
-            row = tk.Frame(sf, bg=CARD_BG)
-            row.pack(fill="x", pady=1)
-            dot = tk.Label(row, text="●", fg=RED, bg=CARD_BG, font=body_font)
-            dot.pack(side="left")
-            tk.Label(row, text=f"  {label}", fg=TEXT, bg=CARD_BG, font=body_font).pack(side="left")
-            self._status_dots[key] = dot
-            status_lbl = tk.Label(row, text="Offline", fg=TEXT_DIM, bg=CARD_BG, font=small_font)
-            status_lbl.pack(side="right")
-            self._status_labels[key] = status_lbl
+        self._lat_gauge = tk.Label(tele_row, text="Latency: 12ms", fg=ACCENT_YELLOW, bg=CARD_BG, font=f_mono)
+        self._lat_gauge.pack(side="left", padx=12)
 
-        # -- Performance --
-        pf = section(right, "PERFORMANCE")
-        pr = tk.Frame(pf, bg=CARD_BG)
-        pr.pack(fill="x")
-        self._fps_lbl = tk.Label(pr, text="FPS: —", fg=GREEN, bg=CARD_BG, font=mono_font)
-        self._fps_lbl.pack(side="left")
-        self._lat_lbl = tk.Label(pr, text="Latency: — ms", fg=YELLOW, bg=CARD_BG, font=mono_font)
-        self._lat_lbl.pack(side="right")
+        self._cursor_gauge = tk.Label(tele_row, text="Cursor: (0, 0)", fg=ACCENT_CYAN, bg=CARD_BG, font=f_mono)
+        self._cursor_gauge.pack(side="right", padx=4)
 
-        # -- Gesture --
-        gf = section(right, "CURRENT GESTURE")
-        self._gesture_lbl = tk.Label(gf, text="—", fg="white", bg=CARD_BG, font=big_font)
-        self._gesture_lbl.pack()
-        self._action_lbl = tk.Label(gf, text="Action: —", fg=ACCENT2, bg=CARD_BG, font=body_font)
-        self._action_lbl.pack()
-        self._state_lbl = tk.Label(gf, text="State: IDLE", fg=TEXT_DIM, bg=CARD_BG, font=small_font)
-        self._state_lbl.pack()
-        self._conf_lbl = tk.Label(gf, text="Confidence: —", fg=TEXT_DIM, bg=CARD_BG, font=small_font)
-        self._conf_lbl.pack()
+        # Controls & Sliders Card
+        ctrl_card = tk.Frame(left_col, bg=CARD_BG, padx=10, pady=8, highlightthickness=1, highlightbackground=BORDER_COLOR)
+        ctrl_card.pack(fill="x", pady=(8, 0))
 
-        # -- Cursor --
-        cf = section(right, "CURSOR POSITION")
-        self._cursor_lbl = tk.Label(cf, text="X: —   Y: —", fg=TEXT, bg=CARD_BG, font=mono_font)
-        self._cursor_lbl.pack()
+        # Action Buttons Row
+        btn_row = tk.Frame(ctrl_card, bg=CARD_BG)
+        btn_row.pack(fill="x", pady=(0, 8))
 
-        # -- Controls --
-        ctf = section(right, "CONTROLS")
-        btn_row = tk.Frame(ctf, bg=CARD_BG)
-        btn_row.pack(fill="x", pady=2)
-        self._enable_btn = tk.Button(
-            btn_row, text="⏵ Enable", bg=GREEN, fg="white", font=body_font,
-            relief="flat", padx=10, pady=4, cursor="hand2",
-            command=self._on_enable_click,
+        self._btn_enable = tk.Button(
+            btn_row, text="⏵ Enable Control", bg="#059669", fg="white", font=f_bold,
+            relief="flat", padx=12, pady=4, cursor="hand2", command=self._on_enable_click
         )
-        self._enable_btn.pack(side="left", padx=(0, 4))
-        self._disable_btn = tk.Button(
-            btn_row, text="⏸ Disable", bg=WARNING, fg="white", font=body_font,
-            relief="flat", padx=10, pady=4, cursor="hand2",
-            command=self._on_disable_click,
-        )
-        self._disable_btn.pack(side="left")
+        self._btn_enable.pack(side="left", padx=(0, 6))
 
-        self._emergency_btn = tk.Button(
-            ctf, text="⛔ EMERGENCY STOP  [Ctrl+Alt+X]",
-            bg=DANGER, fg="white", font=("Segoe UI", 9, "bold"),
-            relief="flat", padx=10, pady=6, cursor="hand2",
-            command=self._on_emergency_click,
+        self._btn_disable = tk.Button(
+            btn_row, text="⏸ Pause", bg="#d97706", fg="white", font=f_bold,
+            relief="flat", padx=12, pady=4, cursor="hand2", command=self._on_disable_click
         )
-        self._emergency_btn.pack(fill="x", pady=(4, 0))
+        self._btn_disable.pack(side="left", padx=(0, 6))
 
-        # -- Sliders --
-        sf2 = section(right, "FINE TUNING")
+        self._btn_emergency = tk.Button(
+            btn_row, text="⛔ Emergency Stop", bg="#dc2626", fg="white", font=f_bold,
+            relief="flat", padx=12, pady=4, cursor="hand2", command=self._on_emergency_click
+        )
+        self._btn_emergency.pack(side="right")
+
+        # Sliders Row
+        slider_grid = tk.Frame(ctrl_card, bg=CARD_BG)
+        slider_grid.pack(fill="x")
+
+        # Slider 1: Sensitivity
+        s1 = tk.Frame(slider_grid, bg=CARD_BG)
+        s1.pack(side="left", expand=True, fill="x", padx=4)
+        tk.Label(s1, text="Cursor Sensitivity", fg=TEXT_SECONDARY, bg=CARD_BG, font=f_sub).pack(anchor="w")
         self._sensitivity_var = tk.DoubleVar(value=1.5)
+        tk.Scale(
+            s1, variable=self._sensitivity_var, from_=0.5, to=3.0, resolution=0.1,
+            orient="horizontal", bg=CARD_BG, fg=TEXT_PRIMARY, troughcolor="#0f172a",
+            highlightthickness=0, command=self._on_sensitivity
+        ).pack(fill="x")
+
+        # Slider 2: Scroll Speed
+        s2 = tk.Frame(slider_grid, bg=CARD_BG)
+        s2.pack(side="left", expand=True, fill="x", padx=4)
+        tk.Label(s2, text="Scroll Speed", fg=TEXT_SECONDARY, bg=CARD_BG, font=f_sub).pack(anchor="w")
         self._scroll_var = tk.DoubleVar(value=1.0)
+        tk.Scale(
+            s2, variable=self._scroll_var, from_=0.2, to=3.0, resolution=0.1,
+            orient="horizontal", bg=CARD_BG, fg=TEXT_PRIMARY, troughcolor="#0f172a",
+            highlightthickness=0, command=self._on_scroll_speed
+        ).pack(fill="x")
+
+        # Slider 3: Pinch Threshold
+        s3 = tk.Frame(slider_grid, bg=CARD_BG)
+        s3.pack(side="left", expand=True, fill="x", padx=4)
+        tk.Label(s3, text="Pinch Distance", fg=TEXT_SECONDARY, bg=CARD_BG, font=f_sub).pack(anchor="w")
         self._threshold_var = tk.DoubleVar(value=0.06)
+        tk.Scale(
+            s3, variable=self._threshold_var, from_=0.02, to=0.15, resolution=0.005,
+            orient="horizontal", bg=CARD_BG, fg=TEXT_PRIMARY, troughcolor="#0f172a",
+            highlightthickness=0, command=self._on_threshold
+        ).pack(fill="x")
 
-        for label, var, from_, to, res, cb in [
-            ("Cursor Sensitivity", self._sensitivity_var, 0.5, 3.0, 0.1, self._on_sensitivity),
-            ("Scroll Speed", self._scroll_var, 0.2, 3.0, 0.1, self._on_scroll_speed),
-            ("Pinch Threshold", self._threshold_var, 0.02, 0.15, 0.005, self._on_threshold),
-        ]:
-            tk.Label(sf2, text=label, fg=TEXT_DIM, bg=CARD_BG, font=small_font).pack(anchor="w")
-            sl = tk.Scale(
-                sf2, variable=var, from_=from_, to=to, resolution=res,
-                orient="horizontal", bg=CARD_BG, fg=TEXT, troughcolor=BORDER,
-                highlightthickness=0, sliderlength=15, command=cb,
+        # --- RIGHT COLUMN (INTERACTIVE GESTURE GUIDE / CHEAT-SHEET) ---
+        right_col = tk.Frame(content_frame, bg=CARD_BG, width=380, padx=12, pady=10, highlightthickness=1, highlightbackground=BORDER_COLOR)
+        right_col.pack(side="right", fill="both", expand=True)
+        right_col.pack_propagate(False)
+
+        # Guide Header
+        g_header = tk.Frame(right_col, bg=CARD_BG)
+        g_header.pack(fill="x", pady=(0, 6))
+        tk.Label(g_header, text="📖 GESTURE GUIDE & LIVE SIGNS", fg=ACCENT_CYAN, bg=CARD_BG, font=f_head).pack(side="left")
+        tk.Label(g_header, text="(Highlights active sign)", fg=TEXT_MUTED, bg=CARD_BG, font=f_sub).pack(side="right")
+
+        # Cards for each gesture
+        cards_container = tk.Frame(right_col, bg=CARD_BG)
+        cards_container.pack(fill="both", expand=True)
+
+        for item in self.GESTURE_GUIDE_ITEMS:
+            card = tk.Frame(
+                cards_container, bg="#0f172a", padx=10, pady=6,
+                highlightthickness=1, highlightbackground=BORDER_COLOR
             )
-            sl.pack(fill="x")
+            card.pack(fill="x", pady=3)
 
-        # -- Camera selector --
-        camf = section(right, "CAMERA")
-        cam_row = tk.Frame(camf, bg=CARD_BG)
-        cam_row.pack(fill="x")
-        tk.Label(cam_row, text="Index:", fg=TEXT_DIM, bg=CARD_BG, font=body_font).pack(side="left")
-        self._cam_var = tk.StringVar(value=str(self._camera_index))
-        cam_spin = tk.Spinbox(
-            cam_row, from_=0, to=9, textvariable=self._cam_var,
-            width=4, bg=CARD_BG, fg=TEXT, font=body_font,
-            command=self._on_camera_select, relief="flat",
-        )
-        cam_spin.pack(side="left", padx=4)
-        tk.Button(
-            cam_row, text="Switch", bg=ACCENT, fg="white", font=small_font,
-            relief="flat", padx=6, cursor="hand2",
-            command=self._on_camera_select,
-        ).pack(side="left")
+            # Left icon
+            icon_lbl = tk.Label(card, text=item["icon"], font=("Segoe UI Emoji", 14), bg="#0f172a")
+            icon_lbl.pack(side="left", padx=(0, 8))
 
-        # -- WebSocket status --
-        wsf = section(right, "BROWSER EXTENSION")
-        self._ws_lbl = tk.Label(wsf, text="WebSocket: ws://127.0.0.1:8765", fg=TEXT_DIM, bg=CARD_BG, font=small_font)
-        self._ws_lbl.pack(anchor="w")
-        self._wsc_lbl = tk.Label(wsf, text="Connected clients: 0", fg=TEXT_DIM, bg=CARD_BG, font=small_font)
-        self._wsc_lbl.pack(anchor="w")
+            # Center text (Name + detail)
+            info_frame = tk.Frame(card, bg="#0f172a")
+            info_frame.pack(side="left", fill="both", expand=True)
 
-        # Footer
-        footer = tk.Frame(root, bg=BG, pady=4)
-        footer.grid(row=2, column=0, columnspan=2, sticky="ew")
-        tk.Label(footer, text="Toggle: Ctrl+Alt+G  |  Emergency Stop: Ctrl+Alt+X",
-                 fg=TEXT_DIM, bg=BG, font=small_font).pack()
+            name_lbl = tk.Label(info_frame, text=item["name"], fg=TEXT_PRIMARY, bg="#0f172a", font=f_bold, anchor="w")
+            name_lbl.pack(anchor="w")
 
-        root.grid_rowconfigure(1, weight=1)
-        root.grid_columnconfigure(0, weight=1)
+            detail_lbl = tk.Label(info_frame, text=f"{item['action']} — {item['detail']}", fg=TEXT_SECONDARY, bg="#0f172a", font=f_sub, anchor="w")
+            detail_lbl.pack(anchor="w")
+
+            # Right badge (Active status pill)
+            badge_lbl = tk.Label(card, text="IDLE", fg=TEXT_MUTED, bg="#1e293b", font=f_badge, padx=6, pady=2)
+            badge_lbl.pack(side="right")
+
+            self._guide_cards[item["id"]] = {
+                "frame": card,
+                "icon": icon_lbl,
+                "info": info_frame,
+                "name": name_lbl,
+                "detail": detail_lbl,
+                "badge": badge_lbl,
+                "keys": item["keys"],
+                "is_active": False,
+            }
+
+        # Footer hotkeys
+        footer = tk.Frame(right_col, bg=CARD_BG, pady=6)
+        footer.pack(fill="x", side="bottom")
+        tk.Label(footer, text="Hotkeys: [Ctrl+Alt+G] Toggle  |  [Ctrl+Alt+X] Stop", fg=TEXT_MUTED, bg=CARD_BG, font=f_sub).pack()
 
     # ------------------------------------------------------------------
-    # Refresh loop
+    # Refresh Loop
     # ------------------------------------------------------------------
 
     def _schedule_refresh(self) -> None:
         if not self._running:
             return
-        self._refresh()
-        self._root.after(33, self._schedule_refresh)  # ~30 fps refresh
+        try:
+            self._refresh()
+        except Exception as e:
+            log.debug(f"Dashboard refresh error: {e}")
+        finally:
+            if self._running and self._root:
+                try:
+                    self._root.after(33, self._schedule_refresh)
+                except Exception:
+                    pass
 
     def _refresh(self) -> None:
         s = self._status
 
-        # Status dots
-        for key, dot in self._status_dots.items():
-            val = s.get(key, False)
-            color = GREEN if val else RED
-            dot.configure(fg=color)
-            lbl = self._status_labels[key]
-            lbl.configure(text="Active" if val else "Offline", fg=color)
-
-        # Performance
-        self._fps_lbl.configure(text=f"FPS: {s.get('fps', 0):.1f}")
-        self._lat_lbl.configure(text=f"Latency: {s.get('latency', 0):.0f} ms")
-
-        # Gesture
-        gesture = s.get("gesture", "—").replace("_", " ").upper()
-        self._gesture_lbl.configure(text=gesture)
-        self._action_lbl.configure(text=f"Action: {s.get('action', '—')}")
-        self._state_lbl.configure(text=f"State: {s.get('state', 'IDLE')}")
-        self._conf_lbl.configure(text=f"Confidence: {s.get('confidence', 0):.2f}  Fingers: {s.get('extended', 0)}")
-
-        # Cursor
-        self._cursor_lbl.configure(
-            text=f"X: {s.get('cursor_x', 0):>5}   Y: {s.get('cursor_y', 0):>5}"
+        # Update gauges
+        fps_val = s.get("fps", 0.0)
+        lat_val = s.get("latency", 0.0)
+        self._fps_gauge.configure(
+            text=f"FPS: {fps_val:.1f}",
+            fg=ACCENT_GREEN if fps_val >= 24 else ACCENT_YELLOW if fps_val >= 15 else ACCENT_RED
+        )
+        self._lat_gauge.configure(
+            text=f"Latency: {lat_val:.0f}ms",
+            fg=ACCENT_GREEN if lat_val < 35 else ACCENT_YELLOW if lat_val < 80 else ACCENT_RED
+        )
+        self._cursor_gauge.configure(
+            text=f"Cursor: ({s.get('cursor_x', 0)}, {s.get('cursor_y', 0)})"
         )
 
-        # WebSocket
-        self._wsc_lbl.configure(text=f"Connected clients: {s.get('ws_clients', 0)}")
+        # Update top status pills
+        has_tracking = s.get("tracking", False)
+        is_enabled = s.get("enabled", True)
 
-        # Camera frame
+        if has_tracking:
+            self._pill_tracking.configure(text="● HAND TRACKED", fg="#10b981", bg="#064e3b")
+        else:
+            self._pill_tracking.configure(text="○ NO HAND", fg=TEXT_MUTED, bg="#1e293b")
+
+        if is_enabled:
+            self._pill_mode.configure(text="CONTROLLER ON", fg="#10b981", bg="#064e3b")
+        else:
+            self._pill_mode.configure(text="CONTROLLER OFF", fg="#f59e0b", bg="#451a03")
+
+        # === DYNAMIC GESTURE GUIDE HIGHLIGHTING ===
+        curr_gesture = str(s.get("gesture", "")).lower()
+        curr_action = str(s.get("action", "")).lower()
+
+        for item_id, card_data in self._guide_cards.items():
+            matches = any(k in curr_gesture or k in curr_action for k in card_data["keys"])
+
+            if matches and has_tracking and is_enabled:
+                if not card_data["is_active"]:
+                    card_data["is_active"] = True
+                    card_data["frame"].configure(bg="#042f2e", highlightbackground="#14b8a6", highlightthickness=2)
+                    card_data["icon"].configure(bg="#042f2e")
+                    card_data["info"].configure(bg="#042f2e")
+                    card_data["name"].configure(bg="#042f2e", fg="#5eead4")
+                    card_data["detail"].configure(bg="#042f2e", fg="#99f6e4")
+                    card_data["badge"].configure(text="ACTIVE", fg="#14b8a6", bg="#134e4a")
+            else:
+                if card_data["is_active"]:
+                    card_data["is_active"] = False
+                    card_data["frame"].configure(bg="#0f172a", highlightbackground=BORDER_COLOR, highlightthickness=1)
+                    card_data["icon"].configure(bg="#0f172a")
+                    card_data["info"].configure(bg="#0f172a")
+                    card_data["name"].configure(bg="#0f172a", fg=TEXT_PRIMARY)
+                    card_data["detail"].configure(bg="#0f172a", fg=TEXT_SECONDARY)
+                    card_data["badge"].configure(text="IDLE", fg=TEXT_MUTED, bg="#1e293b")
+
+        # Update live camera preview
         with self._frame_lock:
             frame = self._pending_frame
             self._pending_frame = None
@@ -369,11 +480,10 @@ class Dashboard:
             try:
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 h, w = rgb.shape[:2]
-                # Fit to display size
-                dw, dh = 640, 360
+                dw, dh = 560, 315
                 scale = min(dw / w, dh / h)
                 nw, nh = int(w * scale), int(h * scale)
-                rgb = cv2.resize(rgb, (nw, nh))
+                rgb = cv2.resize(rgb, (nw, nh), interpolation=cv2.INTER_LINEAR)
                 img = Image.fromarray(rgb)
                 self._frame_image = ImageTk.PhotoImage(img)
                 self._cam_label.configure(image=self._frame_image, width=dw, height=dh)
@@ -381,7 +491,7 @@ class Dashboard:
                 pass
 
     # ------------------------------------------------------------------
-    # Button/slider callbacks
+    # Control Callbacks
     # ------------------------------------------------------------------
 
     def _on_enable_click(self) -> None:
@@ -393,6 +503,7 @@ class Dashboard:
         self._on_disable()
 
     def _on_emergency_click(self) -> None:
+        self._status["enabled"] = False
         self._on_emergency()
 
     def _on_sensitivity(self, val) -> None:
@@ -403,10 +514,3 @@ class Dashboard:
 
     def _on_threshold(self, val) -> None:
         self._on_threshold_change(float(val))
-
-    def _on_camera_select(self) -> None:
-        try:
-            idx = int(self._cam_var.get())
-            self._on_camera_change(idx)
-        except ValueError:
-            pass
